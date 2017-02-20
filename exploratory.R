@@ -1,15 +1,20 @@
-
-# TruMedia 2017 baseball analytics hackathon
-# Steven Silverman (Steven@SilverStats.com)
+########################################################
+# Code for the TruMedia MLB Hackathon                  #
+# 20 February 2017                                     #
+# Steven Silverman                                     #
+#                                                      #
+# See the associated .Rmd file for all graphics code   #
+# Contact: Steven@SilverStats.com                      #
+########################################################
 
 setwd("~/Analytics articles/TruMedia/trumedia-2017")
-
 
 library(plyr)
 library(dplyr)
 library(scoring)
 library(mgcv)
 
+# first attempt, using the World Series data to play around
 sample <- read.csv("2016-WS.csv")
 
 # 0/1 vector of whether the batter swung at the pitch
@@ -25,11 +30,12 @@ grouped <- (group_by(sample, batter) %>% summarize(count = n(), avgBrier = mean(
 scores <- brierscore(swing ~ probCalledStrike, data=sample)
 
 
+# actual code
 data.2014 <- read.csv("2014.csv")
 data.2015 <- read.csv("2015.csv")
 train <- rbind(data.2014, data.2015)
 
-data2016 <- read.csv("2016.csv")
+data.2016 <- read.csv("2016.csv")
 
 # 0/1 vector of whether the batter swung at the pitch
 train$swing <- train$pitchResult %in% c("SS", "F", "FT", "FB", "MB",
@@ -37,18 +43,19 @@ train$swing <- train$pitchResult %in% c("SS", "F", "FT", "FB", "MB",
 train$brier <- (train$swing - train$probCalledStrike)^2
 
 
-
-
 pitch_cutoff <- 1500 # on the order of 400 plate appearances, which will be good enough
+
+# create some grouped data frames to get a feel for the Brier scores
 groupedBatter <- (group_by(train, batter) %>% summarize(count = n(), avgBrier = mean(brier, na.rm=T))
                     %>% filter(count >= pitch_cutoff) %>% arrange(avgBrier))
 groupedPitcher <- (group_by(train, pitcher) %>% summarize(count = n(), avgBrier = mean(brier, na.rm=T))
-                   %>% filter(count >= pitch_cutoff)%>% arrange(desc(avgBrier)))
+                   %>% filter(count >= pitch_cutoff) %>% arrange(desc(avgBrier)))
 
 
 
 
 # processing code for getting a few aggregate measures
+# some of which I used in last year's hackathon as well
 
 # pitch groupings--used Brooks Baseball/PitchInfo definitions
 fastballTypes <- c("FA", "FT", "FF", "FC", "SI")
@@ -56,7 +63,7 @@ breakingTypes <- c("CU", "SL", "KC", "GY")
 offspeedTypes <- c("CH", "FS", "SC", "EP", "FO")
 otherTypes <- c("KN", "PO", "IN", "AB", "AS", "UN")
 
-veloMean <- function(velo, type, group) { # bit rough including cutters
+veloMean <- function(velo, type, group) {  # again, using Brooks definitions
     if (group == 0) {
         bool <- type %in% fastballTypes
     }
@@ -73,7 +80,7 @@ veloMean <- function(velo, type, group) { # bit rough including cutters
     return(mean(velos, na.rm = TRUE))
 }
 
-herf <- function(pitchType) { # Herfindahl index (see Wikipedia)
+herf <- function(pitchType) { # Herfindahl index for pitch arsenal
     types <- table(pitchType)
     return(sum((types/sum(types))^2, na.rm = TRUE))
 }
@@ -132,7 +139,7 @@ move <- function(movement.pitch, type, group) { # group = 0 for FB, 1 for breaki
     return(mean(abs(movement.pitch[bool]), na.rm = TRUE))
 }
 
-train <- addMovement(train)
+train <- addMovement(train) # add the movement columns
 
 
 totalsPitcher <- (group_by(train, pitcher) %>% 
@@ -148,8 +155,8 @@ totalsPitcher <- (group_by(train, pitcher) %>%
                             fbSpin = spin(spinRate, pitchType, 0),
                             breakSpin = spin(spinRate, pitchType, 1),
                             offSpin = spin(spinRate, pitchType, 2),
-                            fbx = move(mx, pitchType, 0),
-                            fbz = move(mz, pitchType, 0),
+                            fbx = move(mx, pitchType, 0), # horizontal movement
+                            fbz = move(mz, pitchType, 0), # vertical movement
                             brx = move(mx, pitchType, 1),
                             brz = move(mz, pitchType, 1),
                             offx = move(mx, pitchType, 2),
@@ -159,6 +166,7 @@ totalsPitcher <- (group_by(train, pitcher) %>%
 
 
 # fit lots of GAMs, trying a bunch of variable combinations; pick the best one with CV
+# I initially wrote code like this for a class; this is a modified version
 
 formula.response <- "avgBrier ~"
 
@@ -192,10 +200,11 @@ CV.gam <- sapply(models.gam, function(model) { model$gcv.ubre })
 best.gam <- models.gam[[which.min(CV.gam)]]
 best.formula.gam <- formulas.gam[[which.min(CV.gam)]]
 
-best.formula.gam2 <- "avgBrier ~ s(herf) + s(fbVelo) + + s(fbx) + s(fbz) + 
-                                 s(brx) + s(fbSpin) + s(breakSpin)  + s(fbVelo, offVelo) + 
-                                 s(fbx, brx, offx) + s(fbz, brz, offz)"
-best.formula.gam2 <- as.formula(best.formula.gam2)
+# manually type out the formula so I don't have to examine the object every time
+#best.formula.gam2 <- "avgBrier ~ s(herf) + s(fbVelo) + + s(fbx) + s(fbz) + 
+#                                 s(brx) + s(fbSpin) + s(breakSpin)  + s(fbVelo, offVelo) + 
+#                                 s(fbx, brx, offx) + s(fbz, brz, offz)"
+#best.formula.gam2 <- as.formula(best.formula.gam2)
 
 plot(best.gam, scale=0, se=2, shade=TRUE, select=1)
 plot(best.gam, scale=0, se=2, shade=TRUE, select=2)
@@ -208,11 +217,11 @@ plot(best.gam, scale=0, se=2, shade=TRUE, select=7)
 plot(best.gam, scale=0, se=2, shade=TRUE, select=8, cex.lab=2, cex.main=2,
      cex.axis=2.5)
 
+# Predictions on test data set (2016; training was 2014-15)
 
+pitch_cutoff_test <- 750 # lower cutoff for one year
 
-pitch_cutoff_test <- 750
-
-test <- addMovement(data2016)
+test <- addMovement(data.2016)
 
 test$swing <- test$pitchResult %in% c("SS", "F", "FT", "FB", "MB",
                                         "IP", "CI")
@@ -243,6 +252,12 @@ testPitcher <- (group_by(test, pitcher) %>%
 predicted <- predict(best.gam, newdata=testPitcher)
 mae <- mean(abs(predicted-testPitcher$avgBrier), na.rm=T)
 
-# next, need to cook up some fancy visualizations (heatmaps, scatterplots, etc)
 
-# plus write up a page or so on the method, the training data results, and the testing data results
+# Save off relevant objects to avoid re-reading CSV files and redoing calculations
+
+save(best.gam.formula, "gamFormula.RData")
+save(best.gam, "gam.RData")
+save(totalsPitcher, "totalsPitcher.RData")
+save(groupedPitcher, "groupedPitcher.RData")
+save(groupedBatter, "groupedBatter.RData")
+save(testPitcher, "testPitcher.RData")
